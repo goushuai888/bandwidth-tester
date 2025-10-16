@@ -3,11 +3,11 @@ version: '3.8'
 services:
   bandwidth-tester:
     # 使用本地构建的固定版本镜像
-    image: bandwidth-tester:v1.0.2
+    image: bandwidth-tester:v1.0.3
     # 或者使用Docker Hub公开镜像(推荐使用固定版本而非latest)
-    # image: goushuai888/bandwidth-tester:v1.0.2
+    # image: goushuai888/bandwidth-tester:v1.0.3
     # 或者从GitHub Container Registry拉取
-    # image: ghcr.io/goushuai888/bandwidth-tester:v1.0.2
+    # image: ghcr.io/goushuai888/bandwidth-tester:v1.0.3
 
     # 如需从源码构建,取消注释:
     # build:
