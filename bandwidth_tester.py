@@ -67,11 +67,10 @@ def parse_env_config():
     # 默认提供多个高速CDN下载URL，确保持续稳定的下载速度
     # 所有 URL 已验证可用（最后验证: 2025-10-16）
     default_urls = [
-        'https://proof.ovh.net/files/100Mb.dat',  # OVH 100MB（欧洲，稳定）
-        'https://speedtest.dallas.linode.com/100MB-dallas.bin',  # Linode 100MB（美国，快速）
+        'https://speedtest.dallas.linode.com/100MB-dallas.bin',  # Linode 100MB（美国，快速稳定）
         'http://nj-us-ping.vultr.com/vultr.com.100MB.bin',  # Vultr 100MB（美国，稳定）
+        'http://speedtest.tele2.net/100MB.zip',  # Tele2 Speedtest（欧洲，稳定）
         'https://img.cmvideo.cn/publish/noms/2023/12/06/1O4SHFIFR36BD.gif',  # 中国移动（中国优化）
-        'https://proof.ovh.net/files/10Mb.dat',  # OVH 10MB（备用，快速响应）
     ]
 
     # 解析 URL 列表（使用分号分隔避免 URL 查询参数中的逗号问题）
