@@ -65,14 +65,13 @@ def parse_env_config():
         SystemExit: 配置验证失败时退出程序
     """
     # 默认提供多个高速CDN下载URL，确保持续稳定的下载速度
+    # 所有 URL 已验证可用（最后验证: 2025-10-16）
     default_urls = [
-        'https://speed.cloudflare.com/__down?bytes=100000000',  # Cloudflare 100MB测试文件
-        'https://proof.ovh.net/files/100Mb.dat',  # OVH 100MB测试文件
-        'https://ash-speed.hetzner.com/100MB.bin',  # Hetzner 100MB测试文件
-        'https://speed.hetzner.de/100MB.bin',  # Hetzner DE 100MB
-        'https://mirror.init7.net/speedtest/data/1000mb.bin',  # Init7 1GB测试文件
-        'https://bouygues.testdebit.info/100M.iso',  # Bouygues 100MB
-        'https://img.cmvideo.cn/publish/noms/2023/12/06/1O4SHFIFR36BD.gif'  # 原默认URL
+        'https://proof.ovh.net/files/100Mb.dat',  # OVH 100MB（欧洲，稳定）
+        'https://speedtest.dallas.linode.com/100MB-dallas.bin',  # Linode 100MB（美国，快速）
+        'http://nj-us-ping.vultr.com/vultr.com.100MB.bin',  # Vultr 100MB（美国，稳定）
+        'https://img.cmvideo.cn/publish/noms/2023/12/06/1O4SHFIFR36BD.gif',  # 中国移动（中国优化）
+        'https://proof.ovh.net/files/10Mb.dat',  # OVH 10MB（备用，快速响应）
     ]
 
     # 解析 URL 列表（使用分号分隔避免 URL 查询参数中的逗号问题）
