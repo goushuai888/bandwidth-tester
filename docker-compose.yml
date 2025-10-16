@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  bandwidth-tester:
+    # 使用本地构建的固定版本镜像
+    image: bandwidth-tester:v1.0.1
+    # 或者使用Docker Hub公开镜像(推荐使用固定版本而非latest)
+    # image: goushuai888/bandwidth-tester:v1.0.1
+    # 或者从GitHub Container Registry拉取
+    # image: ghcr.io/goushuai888/bandwidth-tester:v1.0.1
+
+    # 如需从源码构建,取消注释:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+
+    container_name: bandwidth-tester
+
+    # 重启策略: unless-stopped 比 always 更安全
+    # 避免失败容器无限重启消耗资源
+    restart: unless-stopped
+
+    # 环境变量配置
+    environment:
+      - THREAD_COUNT=5
+      - GOAL_GB=0  # 0表示无限制模式
+      # 可选: 自定义URL列表
+      # - URL_LIST=https://speed.cloudflare.com/__down?bytes=100000000,https://proof.ovh.net/files/100Mb.dat
+
+    # 也可以使用外部env文件(推荐用于敏感配置)
+    # env_file:
+    #   - ./config/.env
+
+    # 资源限制 (兼容Swarm和非Swarm模式)
+    mem_limit: 512m
+    mem_reservation: 128m
+    cpus: 2.0
+
+    # Swarm模式的资源限制(可选)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+    # 安全配置 (CIS Docker Benchmark合规)
+    security_opt:
+      - no-new-privileges:true  # CIS 5.25 - 限制容器获得额外特权
+      - apparmor:docker-default # 使用AppArmor安全配置
+
+    # Linux Capabilities限制 (CIS 5.3 - 最小权限原则)
+    cap_drop:
+      - ALL  # 移除所有capabilities
+    # 如果需要特定capabilities,在此添加:
+    # cap_add:
+    #   - NET_BIND_SERVICE  # 示例: 允许绑定1024以下端口
+
+    # 只读根文件系统 (CIS 5.12 - 防止容器内文件被篡改)
+    read_only: true
+
+    # 临时文件系统挂载 (应用运行时需要可写目录)
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m  # /tmp目录,不允许执行,大小100MB
+
+    # PID限制 (CIS 5.28 - 防止fork炸弹)
+    pids_limit: 100
+
+    # ulimit配置 (限制进程资源)
+    ulimits:
+      nofile:  # 文件描述符限制
+        soft: 1024
+        hard: 2048
+      nproc:   # 进程数限制
+        soft: 64
+        hard: 128
+
+    # 日志配置 (增强的日志记录)
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service,env"
+        env: "THREAD_COUNT,GOAL_GB"
+
+    # 健康检查 (监控容器状态)
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # 网络配置
+    networks:
+      - bandwidth_net
+
+    # 不暴露端口 (本应用不需要对外服务)
+    # ports:
+    #   - "8080:8080"  # 如果未来需要API端点,在此配置
+
+# 自定义网络 (网络隔离)
+networks:
+  bandwidth_net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br_bandwidth
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# 如果未来需要持久化数据,在此配置volumes
+# volumes:
+#   bandwidth_data:
+#     driver: local
