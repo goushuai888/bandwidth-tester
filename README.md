@@ -1,26 +1,40 @@
-# 带宽测试器 (Bandwidth Tester) - Docker版本
+# 带宽测试器 (Bandwidth Tester)
 
-一个基于Python的多线程下载工具,支持Docker容器化部署,可用于网络流量测试和带宽压力测试。
+高性能多线程带宽测试工具 - 支持Docker多架构部署和生产级安全配置
 
-## 功能特性
+[![Docker Hub](https://img.shields.io/docker/pulls/goushuai888/bandwidth-tester)](https://hub.docker.com/r/goushuai888/bandwidth-tester)
+[![GitHub](https://img.shields.io/github/stars/goushuai888/bandwidth-tester)](https://github.com/goushuai888/bandwidth-tester)
 
-- 多线程并发下载
-- 自定义流量目标
-- 支持环境变量配置
-- Docker容器化部署
-- 优雅退出机制
-- 资源限制配置
+## ⚡ 超快速启动（一行命令）
 
-## 镜像地址
+```bash
+# 拉取镜像
+docker pull goushuai888/bandwidth-tester:latest
 
-本项目的Docker镜像已发布到多个容器镜像仓库:
+# 启动容器
+docker run -d --name bandwidth-tester --restart always goushuai888/bandwidth-tester:latest
+
+# 查看日志
+docker logs -f bandwidth-tester
+```
+
+## 📦 镜像地址
 
 - **Docker Hub** (推荐): `goushuai888/bandwidth-tester:latest`
 - **GitHub Container Registry**: `ghcr.io/goushuai888/bandwidth-tester:latest`
 
 支持架构: `linux/amd64`, `linux/arm64`
 
-## 快速开始
+## 🎯 功能特性
+
+- ✅ 多线程并发下载（线程安全）
+- ✅ 自定义流量目标
+- ✅ Docker 多架构支持
+- ✅ 生产级安全配置（CIS 合规）
+- ✅ 资源限制和健康检查
+- ✅ 优雅退出机制
+
+## 📖 详细使用
 
 ### 直接使用已发布的镜像 (最快)
 
