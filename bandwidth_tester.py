@@ -3,34 +3,122 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 import random
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import signal
 import threading
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 
-# 从环境变量读取配置,如果没有则使用默认值
-# 默认提供多个高速CDN下载URL，确保持续稳定的下载速度
-default_urls = [
-    'https://speed.cloudflare.com/__down?bytes=100000000',  # Cloudflare 100MB测试文件
-    'https://proof.ovh.net/files/100Mb.dat',  # OVH 100MB测试文件
-    'https://ash-speed.hetzner.com/100MB.bin',  # Hetzner 100MB测试文件
-    'https://speed.hetzner.de/100MB.bin',  # Hetzner DE 100MB
-    'https://mirror.init7.net/speedtest/data/1000mb.bin',  # Init7 1GB测试文件
-    'https://bouygues.testdebit.info/100M.iso',  # Bouygues 100MB
-    'https://img.cmvideo.cn/publish/noms/2023/12/06/1O4SHFIFR36BD.gif'  # 原默认URL
-]
+def setup_logging():
+    """
+    配置日志系统：控制台输出 + 可选的文件轮转日志
 
-url_list = os.getenv('URL_LIST', ','.join(default_urls)).split(',')
-thread_count = int(os.getenv('THREAD_COUNT', '5'))  # 线程数量
-# 增加连接池大小以支持更高并发
-pool_size = max(thread_count * 2, 20)  # 至少20个连接
-goal = int(os.getenv('GOAL_GB', '0'))  # 消耗的流量单位GB
-if goal > 0:
-    goal = goal * 1024 * 1024 * 1024  # GB转为B
+    日志文件会自动轮转，单个文件最大10MB，最多保留3个历史文件
+    """
+    # 获取日志级别配置
+    log_level_str = os.getenv('LOG_LEVEL', 'INFO').upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+
+    # 创建日志格式器
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+    # 配置根日志记录器
+    logger = logging.getLogger()
+    logger.setLevel(log_level)
+
+    # 控制台处理器（主要用于Docker容器）
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # 可选：文件日志处理器（仅在非容器环境或显式启用时）
+    if os.getenv('ENABLE_FILE_LOG', 'false').lower() == 'true':
+        try:
+            # 轮转日志：单个文件最大10MB，保留3个备份
+            file_handler = RotatingFileHandler(
+                'bandwidth_tester.log',
+                maxBytes=10 * 1024 * 1024,  # 10MB
+                backupCount=3,
+                encoding='utf-8'
+            )
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+            logging.info("文件日志已启用: bandwidth_tester.log")
+        except Exception as e:
+            logging.warning("无法启用文件日志: %s", e)
+
+
+# 配置日志系统
+setup_logging()
+
+
+def parse_env_config():
+    """
+    解析和验证环境变量配置
+
+    Returns:
+        tuple: (url_list, thread_count, pool_size, goal)
+
+    Raises:
+        SystemExit: 配置验证失败时退出程序
+    """
+    # 默认提供多个高速CDN下载URL，确保持续稳定的下载速度
+    default_urls = [
+        'https://speed.cloudflare.com/__down?bytes=100000000',  # Cloudflare 100MB测试文件
+        'https://proof.ovh.net/files/100Mb.dat',  # OVH 100MB测试文件
+        'https://ash-speed.hetzner.com/100MB.bin',  # Hetzner 100MB测试文件
+        'https://speed.hetzner.de/100MB.bin',  # Hetzner DE 100MB
+        'https://mirror.init7.net/speedtest/data/1000mb.bin',  # Init7 1GB测试文件
+        'https://bouygues.testdebit.info/100M.iso',  # Bouygues 100MB
+        'https://img.cmvideo.cn/publish/noms/2023/12/06/1O4SHFIFR36BD.gif'  # 原默认URL
+    ]
+
+    # 解析 URL 列表（使用分号分隔避免 URL 查询参数中的逗号问题）
+    url_list_str = os.getenv('URL_LIST', ';'.join(default_urls))
+    # 兼容逗号分隔（向后兼容）
+    if ';' in url_list_str:
+        url_list = [url.strip() for url in url_list_str.split(';') if url.strip()]
+    else:
+        url_list = [url.strip() for url in url_list_str.split(',') if url.strip()]
+
+    if not url_list:
+        logging.error("配置错误: URL_LIST 为空，至少需要一个有效的下载URL")
+        raise SystemExit(1)
+
+    # 解析线程数
+    try:
+        thread_count = int(os.getenv('THREAD_COUNT', '5'))
+        if not (1 <= thread_count <= 100):
+            logging.error("配置错误: THREAD_COUNT 必须在 1-100 之间，当前值: %s", thread_count)
+            raise SystemExit(1)
+    except ValueError:
+        logging.error("配置错误: THREAD_COUNT 必须是整数，当前值: %s", os.getenv('THREAD_COUNT'))
+        raise SystemExit(1)
+
+    # 解析目标流量
+    try:
+        goal = int(os.getenv('GOAL_GB', '0'))
+        if goal < 0:
+            logging.error("配置错误: GOAL_GB 不能为负数，当前值: %s", goal)
+            raise SystemExit(1)
+        if goal > 10000:
+            logging.warning("警告: GOAL_GB 设置过大 (%s GB)，可能需要很长时间完成", goal)
+        if goal > 0:
+            goal = goal * 1024 * 1024 * 1024  # GB转为B
+    except ValueError:
+        logging.error("配置错误: GOAL_GB 必须是整数，当前值: %s", os.getenv('GOAL_GB'))
+        raise SystemExit(1)
+
+    # 计算连接池大小
+    pool_size = max(thread_count * 2, 20)  # 至少20个连接
+
+    return url_list, thread_count, pool_size, goal
+
+
+# 解析配置
+url_list, thread_count, pool_size, goal = parse_env_config()
 
 
 # 线程安全的状态管理类
@@ -115,23 +203,30 @@ def download(url):
         bool: True表示下载完成或达到目标
     """
     response = None  # 初始化response,避免finally中未定义错误
+    is_running = False  # 标记是否已计入运行中
 
     try:
-        stats.increment_running()
-
         # 增加块大小以提高下载速度，设置超时避免挂起
         # 使用元组格式: (连接超时, 读取超时)
         response = session.get(url, stream=True, timeout=(5, 30))
 
         if response.status_code == 200:
+            # 连接成功后才计入运行中的线程
+            stats.increment_running()
+            is_running = True
+
             # 使用更大的块大小(100KB)提高下载效率
             for chunk in response.iter_content(chunk_size=102400):
-                # 检查退出标志
+                # 检查退出标志（双重检查避免超额下载）
                 if shutdown_event.is_set():
                     break
 
                 # 如果goal为0,不记录流量(无限制模式)
                 if goal > 0 and chunk:
+                    # 再次检查，避免竞态条件导致超额
+                    if shutdown_event.is_set():
+                        break
+
                     current_bytes = stats.add_bytes(len(chunk))
 
                     if current_bytes >= goal:
@@ -146,15 +241,17 @@ def download(url):
             logging.warning("HTTP状态码错误: %s - %s", response.status_code, url)
 
     except requests.exceptions.Timeout:
-        logging.debug("下载超时: %s", url)
+        logging.warning("下载超时: %s", url)
     except requests.exceptions.ConnectionError as e:
-        logging.debug("连接错误: %s - %s", url, e)
+        logging.warning("连接错误: %s - %s", url, str(e)[:100])
     except requests.exceptions.RequestException as e:
-        logging.debug("下载失败: %s - %s", url, e)
+        logging.warning("下载失败: %s - %s", url, str(e)[:100])
     except Exception as e:
         logging.error("未预期的错误: %s - %s", url, e)
     finally:
-        stats.decrement_running()
+        # 只有计入的线程才减少计数
+        if is_running:
+            stats.decrement_running()
 
         # 安全关闭响应对象
         if response is not None:
@@ -222,7 +319,19 @@ if __name__ == "__main__":
 
     # 优雅退出
     logging.info("正在关闭线程池...")
-    executor.shutdown(wait=True, cancel_futures=True)
+    # Python 3.9+ 支持 cancel_futures 参数
+    import sys
+    if sys.version_info >= (3, 9):
+        executor.shutdown(wait=True, cancel_futures=True)
+    else:
+        executor.shutdown(wait=True)
+
+    # 关闭 HTTP Session 释放连接
+    logging.info("正在关闭 HTTP 会话...")
+    try:
+        session.close()
+    except Exception as e:
+        logging.warning("关闭 HTTP 会话时出错: %s", e)
 
     # 输出最终统计
     final_bytes = stats.get_bytes_downloaded()
