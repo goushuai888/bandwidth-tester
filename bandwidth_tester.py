@@ -64,13 +64,18 @@ def parse_env_config():
     Raises:
         SystemExit: 配置验证失败时退出程序
     """
-    # 默认提供多个高速CDN下载URL，确保持续稳定的下载速度
-    # 所有 URL 已验证可用（最后验证: 2025-10-16）
+    # 默认提供多个高速CDN下载URL，优先使用国内源确保持续稳定的下载速度
+    # 所有 URL 已验证可用（最后验证: 2025-10-28）
     default_urls = [
-        'https://speedtest.dallas.linode.com/100MB-dallas.bin',  # Linode 100MB（美国，快速稳定）
-        'http://nj-us-ping.vultr.com/vultr.com.100MB.bin',  # Vultr 100MB（美国，稳定）
-        'http://speedtest.tele2.net/100MB.zip',  # Tele2 Speedtest（欧洲，稳定）
-        'https://img.cmvideo.cn/publish/noms/2023/12/06/1O4SHFIFR36BD.gif',  # 中国移动（中国优化）
+        # 国内CDN（优先，已验证可用）
+        'https://img.cmvideo.cn/publish/noms/2023/12/06/1O4SHFIFR36BD.gif',  # 中国移动CDN
+        'https://dldir1.qq.com/qqfile/qq/PCQQ9.7.17/QQ9.7.17.29225.exe',  # 腾讯CDN（100MB+）
+        'https://mirrors.aliyun.com/centos/7/isos/x86_64/CentOS-7-x86_64-DVD-2009.iso',  # 阿里云镜像（4GB+）
+        'https://mirrors.aliyun.com/ubuntu-releases/22.04/ubuntu-22.04.5-desktop-amd64.iso',  # 阿里云Ubuntu镜像
+        'https://mirrors.cloud.tencent.com/ubuntu-releases/22.04/ubuntu-22.04.5-desktop-amd64.iso',  # 腾讯云镜像
+        # 国外CDN（备用）
+        'https://speedtest.dallas.linode.com/100MB-dallas.bin',  # Linode 100MB（美国）
+        'http://speedtest.tele2.net/100MB.zip',  # Tele2 Speedtest（欧洲）
     ]
 
     # 解析 URL 列表（使用分号分隔避免 URL 查询参数中的逗号问题）
