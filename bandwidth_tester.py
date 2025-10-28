@@ -127,6 +127,8 @@ class ThreadSafeStats:
         self._lock = threading.Lock()
         self._bytes_downloaded = 0
         self._running_threads = 0
+        self._consecutive_failures = 0  # 连续失败次数
+        self._last_success_time = time.time()  # 上次成功时间
 
     def add_bytes(self, bytes_count):
         """增加已下载字节数(线程安全)"""
@@ -156,11 +158,30 @@ class ThreadSafeStats:
         with self._lock:
             return self._bytes_downloaded
 
+    def record_failure(self):
+        """记录失败(线程安全)"""
+        with self._lock:
+            self._consecutive_failures += 1
+            return self._consecutive_failures
+
+    def record_success(self):
+        """记录成功(线程安全)"""
+        with self._lock:
+            self._consecutive_failures = 0
+            self._last_success_time = time.time()
+
+    def get_consecutive_failures(self):
+        """获取连续失败次数(线程安全)"""
+        with self._lock:
+            return self._consecutive_failures
+
     def reset(self):
         """重置统计信息(线程安全)"""
         with self._lock:
             self._bytes_downloaded = 0
             self._running_threads = 0
+            self._consecutive_failures = 0
+            self._last_success_time = time.time()
 
 
 # 全局状态对象
@@ -198,10 +219,11 @@ def download(url):
         url: 下载URL
 
     Returns:
-        bool: True表示下载完成或达到目标
+        bool: True表示下载完成或达到目标, False表示失败
     """
     response = None  # 初始化response,避免finally中未定义错误
     is_running = False  # 标记是否已计入运行中
+    download_success = False  # 标记下载是否成功
 
     try:
         # 增加块大小以提高下载速度，设置超时避免挂起
@@ -219,33 +241,43 @@ def download(url):
                 if shutdown_event.is_set():
                     break
 
-                # 如果goal为0,不记录流量(无限制模式)
-                if goal > 0 and chunk:
-                    # 再次检查，避免竞态条件导致超额
-                    if shutdown_event.is_set():
-                        break
+                # 跳过空chunk
+                if not chunk:
+                    continue
 
-                    current_bytes = stats.add_bytes(len(chunk))
+                # 统一记录流量（无论是否有目标限制）
+                current_bytes = stats.add_bytes(len(chunk))
 
-                    if current_bytes >= goal:
-                        logging.info(
-                            "流量已经消费了 %s B,达到目标 %s B,终止下载",
-                            current_bytes,
-                            goal
-                        )
-                        shutdown_event.set()  # 通知所有线程停止
-                        return True
+                # 如果设置了目标流量，检查是否达到
+                if goal > 0 and current_bytes >= goal:
+                    logging.info(
+                        "流量已经消费了 %.2f GB, 达到目标 %.2f GB, 终止下载",
+                        current_bytes / (1024 * 1024 * 1024),
+                        goal / (1024 * 1024 * 1024)
+                    )
+                    shutdown_event.set()  # 通知所有线程停止
+                    download_success = True
+                    return True
+
+            # 正常下载完成（文件结束）
+            download_success = True
+            stats.record_success()
         else:
             logging.warning("HTTP状态码错误: %s - %s", response.status_code, url)
+            stats.record_failure()
 
     except requests.exceptions.Timeout:
         logging.warning("下载超时: %s", url)
+        stats.record_failure()
     except requests.exceptions.ConnectionError as e:
         logging.warning("连接错误: %s - %s", url, str(e)[:100])
+        stats.record_failure()
     except requests.exceptions.RequestException as e:
         logging.warning("下载失败: %s - %s", url, str(e)[:100])
+        stats.record_failure()
     except Exception as e:
         logging.error("未预期的错误: %s - %s", url, e)
+        stats.record_failure()
     finally:
         # 只有计入的线程才减少计数
         if is_running:
@@ -258,7 +290,7 @@ def download(url):
             except Exception as e:
                 logging.debug("关闭响应失败: %s", e)
 
-    return True
+    return download_success
 
 
 def start_download():
@@ -298,10 +330,41 @@ if __name__ == "__main__":
 
     # 主循环：快速检查并补充线程，保持持续下载
     check_interval = 0.5  # 每0.5秒检查一次，确保连续性
+    last_log_time = time.time()  # 上次日志输出时间
+    log_interval = 10  # 每10秒输出一次统计信息
+    last_bytes = 0  # 上次记录的字节数
 
     while not shutdown_event.is_set():
         current_running = stats.get_running_count()
         current_bytes = stats.get_bytes_downloaded()
+        consecutive_failures = stats.get_consecutive_failures()
+
+        # 防止无限重试风暴：如果连续失败次数过多，延迟重试
+        if consecutive_failures > thread_count * 3:
+            backoff_time = min(consecutive_failures * 2, 60)  # 最多延迟60秒
+            logging.warning(
+                "连续失败 %s 次，暂停 %s 秒后重试（可能所有URL都不可用）",
+                consecutive_failures,
+                backoff_time
+            )
+            time.sleep(backoff_time)
+            # 重置失败计数，给一次机会
+            stats.record_success()
+
+        # 定期输出统计信息（仅在无限模式或还未达到目标时）
+        current_time = time.time()
+        if current_time - last_log_time >= log_interval:
+            if goal == 0 or current_bytes < goal:
+                speed_mbps = ((current_bytes - last_bytes) * 8 / (1024 * 1024)) / log_interval
+                logging.info(
+                    "运行状态 - 活跃线程: %s/%s, 已下载: %.2f GB, 速度: %.2f Mbps",
+                    current_running,
+                    thread_count,
+                    current_bytes / (1024 * 1024 * 1024),
+                    speed_mbps
+                )
+                last_log_time = current_time
+                last_bytes = current_bytes
 
         # 检查是否需要补充线程
         if (goal == 0 or current_bytes < goal) and current_running < thread_count:
@@ -333,10 +396,11 @@ if __name__ == "__main__":
 
     # 输出最终统计
     final_bytes = stats.get_bytes_downloaded()
-    if goal > 0:
+    if final_bytes > 0:
         logging.info(
-            "程序已退出 - 总流量: %.2f GB",
-            final_bytes / (1024 * 1024 * 1024)
+            "程序已退出 - 总流量: %.2f GB (%.2f MB)",
+            final_bytes / (1024 * 1024 * 1024),
+            final_bytes / (1024 * 1024)
         )
     else:
-        logging.info("程序已退出")
+        logging.info("程序已退出 - 未下载任何数据")
